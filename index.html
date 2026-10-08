@@ -4016,6 +4016,7 @@ const GPU=(()=>{try{const c=document.createElement('canvas'),gl=c.getContext('we
 let QL=(()=>{try{const v=localStorage.getItem('minoseg');if(localStorage.getItem('minoseg_v')==='2'&&['alacsony','közepes','magas','ultra'].includes(v))return v;}catch(e){}return LITE?((navigator.hardwareConcurrency||4)>=8?'közepes':'alacsony'):(GPU.igpu?'közepes':'magas');})(); /* alapból: telefonon közepes/alacsony, laptopon beépített grafikával közepes, külön videokártyával magas; az ultra csak kézi választásra */
 const QP={alacsony:{aa:false,pr:1,seg:[5,7,8,10],crown:0,tsub:1,cyl:10,tiers:3,lobes:2},közepes:{aa:true,pr:1.5,seg:[8,11,12,16],crown:1,tsub:1,cyl:14,tiers:4,lobes:9},magas:{aa:true,pr:2,seg:[12,16,16,24],crown:2,tsub:2,cyl:20,tiers:4,lobes:9},ultra:{aa:true,pr:3,seg:[12,16,16,24],crown:2,tsub:2,cyl:20,tiers:4,lobes:9}}; /* ultra: a kijelző teljes felbontása (legfeljebb 3×) */
 const Q=()=>QP[QL];
+const MOBK=()=>GPU.mob?0.7:1; /* telefonon a részletes távolságok rövidebbek (kevesebb háromszög és rajzolás) */
 const QEN={alacsony:'low',közepes:'medium',magas:'high',ultra:'ultra'};
 const prMax=()=>GPU.mob?({alacsony:1,közepes:1.25,magas:1.5,ultra:2})[QL]:Q().pr; /* telefonon a 3×-os sűrűségű kijelző teljes felbontása négyszer annyi képpont: szemmel alig élesebb, a videókártyának sokszoros munka */
 // ===== filmszerű megjelenítés (közepes és magas minőségben): lineáris színkezelés, ACES tónus, napfény és árnyék, köd, égbolt, textúrázott talaj =====
@@ -4131,7 +4132,7 @@ function postRender(){const r=G3.renderer,cam=G3.camera;postResize();r.setRender
   const c=POST.mComp.uniforms;c.tC.value=POST.rt.texture;c.tA.value=POST.rtA.texture;c.tB.value=POST.rtB1.texture;c.res.value.set(POST.w,POST.h);c.useAO.value=POST.ao?1:0;c.useFX.value=POST.msaa?0:1;c.blK.value=POST.bloom?(0.45+0.4*(G3.nightK||0)):0;postPass(POST.mComp,null);}
 // önbeálló sebesség: ha lassul a kép, csökken a felbontás, majd kikapcsol a kontaktárnyék és a ragyogás; ha van tartalék, visszaáll
 // ===== teljesítményteszt: rögzített pálya (mag, méret, csapatszám), rögzített kameraút hat szakaszban, 60 mp mérés; az akadásokat okukkal együtt jegyzi =====
-const APPV='v94';
+const APPV='v95';
 const BENCH={on:false,tags:[],frames:[],stalls:[],seg:0};
 function benchTag(n,ms){if(BENCH.on)BENCH.tags.push(n+(ms!=null?' '+Math.round(ms)+' ms':''));}
 const BENCH_SEGS=['overview','own castle','village','forest','quarry & workshop','battle, leader'];
@@ -4247,9 +4248,9 @@ function filmGrassMat(sway){const cheap=QL==='alacsony'||QL==='közepes',m=cheap
     float band=sin(dot(ip.xz,vec2(0.0042,0.0021))-uT*0.9)*0.5+0.5;band=band*band*band;float gust=0.45+0.4*sin(uT*0.35+ip.x*0.006)+1.1*band;float w=(sin(uT*1.2+ip.x*0.03+ip.z*0.04)*0.6+sin(uT*2.3+ip.x*0.13+ip.z*0.09)*0.2)*gust+0.9*band;vBand=band; /* széllökés-hullámok vonulnak végig a mezőn */
     transformed.x+=w*position.y*position.y*${sway.toFixed(3)};transformed.z+=w*position.y*position.y*${(sway*0.45).toFixed(3)};`);};return m;}
 function filmGrassInit(root){if(!G3.film)return;G3.wind={value:0};const hi=FILMHI();
-  const sets=[{geo:filmBlade(5,0.6,1.1,0.55,0.18,'#1E2914','#667634'),mat:filmGrassMat(0.32),N:QL==='ultra'?68000:hi?42000:18000,per:hi?60:34,w:[2.2,3.6],h:[3.6,8.5]},
-    {geo:filmBlade(6,0.7,1.1,1.0,0.14,'#28321A','#948F55'),mat:filmGrassMat(0.55),N:QL==='ultra'?9500:hi?6000:2600,per:6,w:[1.8,2.8],h:[8,15],tall:1}];
-  G3.grass={sets,half:QL==='ultra'?560:hi?430:330,cell:40,key:''};
+  const sets=[{geo:filmBlade(5,0.6,1.1,0.55,0.18,'#1E2914','#667634'),mat:filmGrassMat(0.32),N:Math.round((QL==='ultra'?68000:hi?42000:18000)*(GPU.mob?0.5:1)),per:hi?60:34,w:[2.2,3.6],h:[3.6,8.5]},
+    {geo:filmBlade(6,0.7,1.1,1.0,0.14,'#28321A','#948F55'),mat:filmGrassMat(0.55),N:Math.round((QL==='ultra'?9500:hi?6000:2600)*(GPU.mob?0.5:1)),per:6,w:[1.8,2.8],h:[8,15],tall:1}];
+  G3.grass={sets,half:(QL==='ultra'?560:hi?430:330)*(GPU.mob?0.75:1),cell:40,key:''};
   for(const s of sets){s.im=new THREE.InstancedMesh(s.geo,s.mat,s.N);s.im.setColorAt(0,new THREE.Color());s.im.count=0;s.im.frustumCulled=false;s.im.receiveShadow=true;s.im._fs=1; /* a színpuffer a teljes kapacitásra szól, ezért a nullázás előtt jön létre */root.add(s.im);}}
 // fű a kamera körül: cellánként egyszer kiszámolt, eltárolt szálak; mozgáskor csak az új szélső cellák készülnek el (képkockánként néhány ms keretben), a többit csak összemásoljuk
 function grassCellCalc(s,i,j,W2,H2){const G=G3.grass,C=G.cell,TC=P.TCELL,T=G._t||(G._t={m4:new THREE.Matrix4(),q:new THREE.Quaternion(),e:new THREE.Euler(),v:new THREE.Vector3(),sc:new THREE.Vector3(),col:new THREE.Color(),M:new Float32Array(64*16),Cc:new Float32Array(64*3)});
@@ -5235,9 +5236,15 @@ function makeTower(ti){
   for(let k=0;k<4;k++){const pl=new THREE.Mesh(G3.geo.box,L0('#8A6A45'));pl.scale.set(R*2+18,1.5,5);pl.position.set(0,0,(k%2?1:-1)*(R+8));if(k>1){pl.rotation.y=Math.PI/2;pl.position.set((k%2?1:-1)*(R+8),0,0);}sc.add(pl);}g.add(sc);
   const c=document.createElement('canvas');c.width=128;c.height=20;const tex=new THREE.CanvasTexture(c);
   const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:tex,depthTest:false,transparent:true}));sp.scale.set(110,17,1);sp.position.y=flagY+28;sp.renderOrder=5;g.add(sp);
-  const plane=new THREE.Plane(new THREE.Vector3(0,-1,0),1e5);clipify(tw,plane);const cap=new THREE.Mesh(nat==='görög'?new THREE.CylinderGeometry(R*0.98,R*0.98,2,24):G3.geo.box,dk);if(nat!=='görög')cap.scale.set(R*2,2,R*2);g.add(cap);cap.visible=false; /* az épülő torony félkész teteje */
+  mergeStatic(tw);const plane=new THREE.Plane(new THREE.Vector3(0,-1,0),1e5);clipify(tw,plane);const cap=new THREE.Mesh(nat==='görög'?new THREE.CylinderGeometry(R*0.98,R*0.98,2,24):G3.geo.box,dk);if(nat!=='görög')cap.scale.set(R*2,2,R*2);g.add(cap);cap.visible=false; /* az épülő torony félkész teteje */
   g.userData={canvas:c,tex,last:-1,team:ti,tw,sc,top:flagY,plane,cap};return g;}
 // az építés menete: a torony a meccs első két percében emelkedik ki, állványzattal
+// álló, sok kis darabból összerakott csoport: azonos anyagú darabjai egyetlen hálóvá olvadnak (kevesebb rajzolási hívás; a torony 25–30 helyett 6–8 hívás)
+function mergeStatic(grp){const by=new Map();for(const o of grp.children){if(o.isMesh&&!o.isInstancedMesh&&!o.children.length&&o.geometry&&o.geometry.attributes.position){let L=by.get(o.material);if(!L)by.set(o.material,L=[]);L.push(o);}}
+  for(const [m,L] of by){if(L.length<2)continue;let n=0;const parts=[];for(const o of L){o.updateMatrix();let g=o.geometry.index?o.geometry.toNonIndexed():o.geometry.clone();g.applyMatrix4(o.matrix);parts.push(g);n+=g.attributes.position.count;}
+    const P=new Float32Array(n*3),N=new Float32Array(n*3),U=new Float32Array(n*2);let k=0;for(const g of parts){const c=g.attributes.position.count;P.set(g.attributes.position.array,k*3);if(g.attributes.normal)N.set(g.attributes.normal.array,k*3);if(g.attributes.uv)U.set(g.attributes.uv.array,k*2);k+=c;g.dispose();}
+    const G=new THREE.BufferGeometry();G.setAttribute('position',new THREE.BufferAttribute(P,3));G.setAttribute('normal',new THREE.BufferAttribute(N,3));G.setAttribute('uv',new THREE.BufferAttribute(U,2));G.computeBoundingSphere();
+    const M=new THREE.Mesh(G,m);M.castShadow=L[0].castShadow;M.receiveShadow=L[0].receiveShadow;for(const o of L)grp.remove(o);grp.add(M);}}
 function clipify(root,plane){root.traverse(o=>{if(!(o.isMesh||o.isInstancedMesh))return;const m=o.material.clone();m.clippingPlanes=[plane];m.clipShadows=true;o.material=m;});}
 function towerRise(g){const U=g.userData;if(!U.tw)return;const k=Math.min(1,Math.max(0.06,world.t/120));if(U.k===k)return;U.k=k;U.sc.visible=k<1;const cy=U.top*k-14;U.plane.constant=k>=1?1e5:g.position.y+cy;U.cap.visible=k<1;U.cap.position.y=cy-1;
   if(k<1){const h=U.top*k;U.sc.children.forEach((c,i)=>{if(i<4){c.scale.y=h+10;c.position.y=(h+10)/2-14;}else c.position.y=h-16+(i%2)*4;});}}
@@ -5323,7 +5330,7 @@ function villageMats(){if(G3.vmats)return G3.vmats;const L=m=>new THREE.MeshLamb
 function Baker(){this.b={};}
 // csak közelről látható, sűrű apróságok (kövek, kellékek, lehullott ágak): a kamera távolsága szerint ki-be kapcsolnak
 function nearOnly(m,R){if(!m.geometry.boundingSphere)m.geometry.computeBoundingSphere();const b=m.geometry.boundingSphere;(G3.nearOnly=G3.nearOnly||[]).push({m,c:b.center.clone(),r:b.radius,R});}
-function kitLOD(){const K=G3.kitLOD;if(!K||!G3.camera)return;const cp=G3.camera.position,R=QL==='ultra'?2200:QL==='magas'?1600:1100;for(const e of K){const d=e.c.distanceTo(cp)-e.r,on=e.on?d<R*1.12:d<R;if(on===e.on)continue;e.on=on;for(const m of e.hi)m.visible=on;for(const m of e.lo)m.visible=!on;}} /* közel a moduláris házak, távol a régi, egyszerű házak */
+function kitLOD(){const K=G3.kitLOD;if(!K||!G3.camera)return;const cp=G3.camera.position,R=(QL==='ultra'?2200:QL==='magas'?1600:1100)*MOBK();for(const e of K){const d=e.c.distanceTo(cp)-e.r,on=e.on?d<R*1.12:d<R;if(on===e.on)continue;e.on=on;for(const m of e.hi)m.visible=on;for(const m of e.lo)m.visible=!on;}} /* közel a moduláris házak, távol a régi, egyszerű házak */
 function nearOnlyLOD(){kitLOD();const L=G3.nearOnly;if(!L||!G3.camera)return;const cp=G3.camera.position,k=QL==='ultra'?1.35:QL==='magas'?1:QL==='közepes'?0.8:0.6;for(const e of L){e.m.visible=e.c.distanceTo(cp)-e.r<e.R*k;}}
 Baker.prototype.raw=function(key,pos,nor,uv,col){let t=this.b[key];if(!t)t=this.b[key]={p:[],n:[],u:[],c:[]};for(let i=0;i<pos.length;i++){t.p.push(pos[i]);t.n.push(nor[i]);}for(let i=0;i<uv.length;i++)t.u.push(uv[i]);for(let i=0;i<pos.length/3;i++)t.c.push(col.r,col.g,col.b);};
 Baker.prototype.geo=function(key,g,m,col,su,sv){const gg=g.index?g.toNonIndexed():g.clone();gg.applyMatrix4(m);const p=gg.attributes.position.array,n=gg.attributes.normal.array;let u=gg.attributes.uv?gg.attributes.uv.array:new Float32Array(p.length/3*2);
@@ -5611,7 +5618,7 @@ function realChunkBuild(c,root){c.meshes=[];const by=new Map();for(const t of c.
       L.forEach((t,i)=>{const d=t.d;v.set(d[0],d[1],d[2]);e.set(0,d[6],0);q.setFromEuler(e);sc.set(d[3],d[4],d[5]);m4.compose(v,q,sc);im.setMatrixAt(i,m4);const f=0.82+0.3*((t.o.id*0.618)%1);col.setRGB(f,f,f*0.97);if(G3.film)col.multiplyScalar(part.leaf?0.78*filmShade(t.o.cx,t.o.cy):0.9);im.setColorAt(i,col);let E=G3.treeIdx.get(t.o.id);if(!E)G3.treeIdx.set(t.o.id,E=[]);E.push([im,i,d]);});
       im.instanceMatrix.needsUpdate=true;if(im.instanceColor)im.instanceColor.needsUpdate=true;im.visible=false;root.add(im);c.meshes.push(im);}}}
 function obsHas(o){const O=world.obstacles;if(G3._obsA!==O){G3._obsA=O;G3._obsS=new Set(O);}return G3._obsS.has(o);} /* tömbkeresés helyett halmaz (fánként végigjárta az összes akadályt) */
-function realLOD(){const RC=G3.realChunks;if(!RC||!G3.camera||!G3.root)return;const cp=G3.camera.position,F=G3._fr,S=G3._frs||(G3._frs=new THREE.Sphere()),R=QL==='ultra'?1500:QL==='magas'?1100:700;let budget=2;
+function realLOD(){const RC=G3.realChunks;if(!RC||!G3.camera||!G3.root)return;const cp=G3.camera.position,F=G3._fr,S=G3._frs||(G3._frs=new THREE.Sphere()),R=(QL==='ultra'?1500:QL==='magas'?1100:700)*MOBK();let budget=2;
   for(const c of RC){S.center.set(c.x,c.y+60,c.z);S.radius=c.r;const d=Math.max(0,S.center.distanceTo(cp)-c.r*0.6),want=c.on?d<R*1.15:(d<R&&(!F||F.intersectsSphere(S)));
     if(want===c.on)continue;if(want&&!c.meshes){if(budget<=0)continue;budget--;realChunkBuild(c,G3.root);}c.on=want;if(want)G3.realCellOn.add(c.k);else G3.realCellOn.delete(c.k);for(const m of c.meshes||[])m.visible=want; /* képkockánként legfeljebb két új csempét épít: nem akad */
     for(const t of c.list){const id=t.o.id;if(want)G3.realOn.add(id);else G3.realOn.delete(id);const g=G3.treeGrow&&G3.treeGrow.has(id)?G3.treeGrow.get(id):(obsHas(t.o)?1:0);treeScale(id,g);}}}
@@ -5776,7 +5783,7 @@ function terrainLOD(){const L=G3.tTiles;if(!L||!G3.camera)return;const cp=G3.cam
   for(const m of L){const d=Math.max(0,m.userData.c.distanceTo(cp)-m.userData.r),lod=d<1400*k?0:d<3200*k?1:d<6500*k?2:3;if(lod!==m._lod){m._lod=lod;m.geometry=m.userData.lods[lod];}}}
 // fák láthatósága: képernyőn kívül semmi, közel a részletes lomb, távol az egyszerűsített
 function treeLOD(){nearOnlyLOD();terrainLOD();realLOD();if(!G3.treeChunks||!G3.camera)return;const cam=G3.camera,F=G3._fr||(G3._fr=new THREE.Frustum()),M=G3._frm||(G3._frm=new THREE.Matrix4()),S=G3._frs||(G3._frs=new THREE.Sphere());
-  M.multiplyMatrices(cam.projectionMatrix,cam.matrixWorldInverse);F.setFromProjectionMatrix(M);const near=(QL==='ultra'?2400:QL==='magas'?1700:QL==='közepes'?1200:800)*(GPU.igpu?0.75:1),far=QL==='alacsony'?7000:11000,cp=cam.position;const RO=G3.realCellOn;
+  M.multiplyMatrices(cam.projectionMatrix,cam.matrixWorldInverse);F.setFromProjectionMatrix(M);const near=(QL==='ultra'?2400:QL==='magas'?1700:QL==='közepes'?1200:800)*(GPU.mob?0.6:GPU.igpu?0.75:1),far=QL==='alacsony'?7000:11000,cp=cam.position;const RO=G3.realCellOn;
   for(const c of G3.treeChunks){S.center.set(c.x,c.y+60,c.z);S.radius=c.r;const vis=F.intersectsSphere(S),d=Math.max(0,S.center.distanceTo(cp)-c.r*0.6),hi=vis&&d<near;
     for(const m of c.lo)m.visible=vis&&d<far&&!hi;for(const m of c.both)m.visible=vis&&d<far;
     for(const m of c.hi){let v=hi;if(v){const u=m.userData;if(RO&&RO.has(u.rc))v=false;else if(u.sc){S.center.copy(u.sc);S.radius=520;v=F.intersectsSphere(S);}}m.visible=v;}}}
@@ -5872,7 +5879,7 @@ const _cm=new THREE.Matrix4(),_cs=new THREE.Sphere(),_cfix=new THREE.Matrix4(),_
 function chrCol(h){let c=_cc.get(h);if(!c)_cc.set(h,c=new THREE.Color(h));return c;}
 function chrSetup(root){CHR.on=false;CHR.ims=null;if(QL==='alacsony'||!chrInit())return;const capN=QL==='ultra'?900:QL==='magas'?600:360,capF=QL==='ultra'?1600:1000;
   CHR.ims={};for(const n of Object.keys(CHR.v)){CHR.ims[n]=[chrMesh(n,0,capN),chrMesh(n,1,capF)];for(const im of CHR.ims[n]){if((QL==='magas'||QL==='ultra')&&G3.shadow)im.castShadow=true;im.receiveShadow=true;root.add(im);}}
-  CHR.R0=QL==='ultra'?520:QL==='magas'?420:320;CHR.R1=QL==='ultra'?1300:QL==='magas'?1050:800;CHR.on=true;}
+  CHR.R0=(QL==='ultra'?520:QL==='magas'?420:320)*MOBK();CHR.R1=(QL==='ultra'?1300:QL==='magas'?1050:800)*MOBK();CHR.on=true;}
 
 // ===== kellékek a valódi karakterek kezében, fején, hátán: a csont pillanatnyi helyzetét a processzor is kiszámolja ugyanabból az animációs adatból =====
 const _pb=new THREE.Matrix4(),_pm=new THREE.Matrix4(),_pl=new THREE.Matrix4();
@@ -5940,7 +5947,7 @@ function hLimb(col,col2,x,y,z,a1,a2,L1,L2,r,spread){hPut('limb',col,x,y,z,a1,spr
 // népenként: római légiós (galea, szalagvért vállvértekkel, scutum villámdíszítéssel, pilum, gladius, caliga), viking (sodronying, orrvédős kúpsisak, szakáll és copf, lábszártekercs, festett kerek pajzs, övbalta), görög hoplita (korinthoszi sisak íves forgóval, bronz izomvért, lenvászon pteruges, lábvért, aspis lambdával, hosszú dory)
 function shade(c,k){_hc.set(c);return '#'+_hc.multiplyScalar(k).getHexString();}
 // csak a képen látható alakokat rakjuk össze (a kamera mögötti, a túl távoli kimarad)
-function humanVisible(){const e=HR.base.elements,F=G3._fr,cp=G3.camera.position,dx=e[12]-cp.x,dy=e[13]-cp.y,dz=e[14]-cp.z,d2=dx*dx+dy*dy+dz*dz,lim=QL==='alacsony'?2600:QL==='ultra'?5200:4200;HR.lod=HR.noLod?0:d2>1500*1500?2:d2>650*650?1:0;if(d2>lim*lim)return false; /* távolsági részletesség: messziről elmaradnak az apró részek */
+function humanVisible(){const e=HR.base.elements,F=G3._fr,cp=G3.camera.position,dx=e[12]-cp.x,dy=e[13]-cp.y,dz=e[14]-cp.z,d2=dx*dx+dy*dy+dz*dz,lim=(QL==='alacsony'?2600:QL==='ultra'?5200:4200)*MOBK();HR.lod=HR.noLod?0:d2>1500*1500?2:d2>650*650?1:0;if(d2>lim*lim)return false; /* távolsági részletesség: messziről elmaradnak az apró részek */
   if(!F)return true;const S=HR._s||(HR._s=new THREE.Sphere());S.center.set(e[12],e[13]+20,e[14]);S.radius=40;return F.intersectsSphere(S);}
 // a lejtő meredeksége a test előre irányában (a bázismátrixból); falon, tornyon álló alakra nem
 const _rx4=new THREE.Matrix4(),_hbS=new THREE.Matrix4();
