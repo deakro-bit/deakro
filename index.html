@@ -1342,7 +1342,7 @@ details p{max-width:44em;margin:.5em 0;color:var(--ink);}
       <select id="selMap"><option value="1">Normal</option><option value="2.25">Large (+50%)</option></select>
     </label>
     <label class="ctl">Quality
-      <select id="selQ"><option value="alacsony">Low (fast)</option><option value="közepes">Medium</option><option value="magas">High (pretty)</option><option value="ultra">Ultra (finest)</option></select>
+      <select id="selQ"><option value="alacsony">Low (fast)</option><option value="közepes">Medium</option><option value="magas">High (pretty)</option><option value="ultra">Ultra (finest)</option><option value="mozi">Cinematic (strong GPU)</option></select>
     </label>
     <label class="ctl">Seed
       <input id="seedIn" inputmode="numeric" style="width:110px" placeholder="empty = random" aria-describedby="seedShow">
@@ -4013,11 +4013,12 @@ function bridgePrep(){const R=world.river;if(!R)return;for(const b of R.bridges)
 // megjelenési minőség: alacsony (gyors, szögletes), közepes, magas (élsimított, kerek formák, sima táj); böngészőnként megjegyezzük
 const GPU=(()=>{try{const c=document.createElement('canvas'),gl=c.getContext('webgl');if(!gl)return {s:'',igpu:true};const e=gl.getExtension('WEBGL_debug_renderer_info'),r=e?gl.getParameter(e.UNMASKED_RENDERER_WEBGL):gl.getParameter(gl.RENDERER);const lc=gl.getExtension('WEBGL_lose_context');if(lc)lc.loseContext();
   const str=String(r||''),dGPU=/nvidia|geforce|rtx|gtx|quadro|radeon (rx|pro)|apple m[1-9]/i.test(str),mob=/adreno|mali|powervr|apple gpu|xclipse|immortalis/i.test(str);return {s:str,igpu:!dGPU,mob};}catch(e){return {s:'',igpu:true};}})(); /* beépített (integrált) grafikus vezérlőn óvatosabb alapbeállítás */
+let EPIC=(()=>{try{return localStorage.getItem('mozi')==='1'&&localStorage.getItem('minoseg')==='ultra';}catch(e){return false;}})(); /* „Cinematic”: az ultra fölötti, erős videókártyára szánt fokozat */
 let QL=(()=>{try{const v=localStorage.getItem('minoseg');if(localStorage.getItem('minoseg_v')==='2'&&['alacsony','közepes','magas','ultra'].includes(v))return v;}catch(e){}return LITE?((navigator.hardwareConcurrency||4)>=8?'közepes':'alacsony'):(GPU.igpu?'közepes':'magas');})(); /* alapból: telefonon közepes/alacsony, laptopon beépített grafikával közepes, külön videokártyával magas; az ultra csak kézi választásra */
 const QP={alacsony:{aa:false,pr:1,seg:[5,7,8,10],crown:0,tsub:1,cyl:10,tiers:3,lobes:2},közepes:{aa:true,pr:1.5,seg:[8,11,12,16],crown:1,tsub:1,cyl:14,tiers:4,lobes:9},magas:{aa:true,pr:2,seg:[12,16,16,24],crown:2,tsub:2,cyl:20,tiers:4,lobes:9},ultra:{aa:true,pr:3,seg:[12,16,16,24],crown:2,tsub:2,cyl:20,tiers:4,lobes:9}}; /* ultra: a kijelző teljes felbontása (legfeljebb 3×) */
 const Q=()=>QP[QL];
-const MOBK=()=>GPU.mob?0.7:1; /* telefonon a részletes távolságok rövidebbek (kevesebb háromszög és rajzolás) */
-const QEN={alacsony:'low',közepes:'medium',magas:'high',ultra:'ultra'};
+const MOBK=()=>GPU.mob?0.7:EPIC?1.5:1; /* telefonon rövidebb, Cinematic fokozaton 1,5× hosszabb részletes távolságok */ /* telefonon a részletes távolságok rövidebbek (kevesebb háromszög és rajzolás) */
+const QEN={alacsony:'low',közepes:'medium',magas:'high',ultra:'ultra'};const qName=()=>EPIC?'cinematic':(QEN[QL]||QL);
 const prMax=()=>GPU.mob?({alacsony:1,közepes:1.25,magas:1.5,ultra:2})[QL]:Q().pr; /* telefonon a 3×-os sűrűségű kijelző teljes felbontása négyszer annyi képpont: szemmel alig élesebb, a videókártyának sokszoros munka */
 // ===== filmszerű megjelenítés (közepes és magas minőségben): lineáris színkezelés, ACES tónus, napfény és árnyék, köd, égbolt, textúrázott talaj =====
 let CM=false,STD=false; // CM: a megadott (sRGB) színeket lineárisra váltjuk; STD: képpontonkénti (fizikai alapú) anyagok
@@ -4110,29 +4111,34 @@ function postSetup(){AQ.s=1;AQ.lvl=0;POST.on=G3.film&&!!G3.renderer&&G3.renderer
     'float ao=clamp(1.0-occ/10.0*1.6,0.0,1.0);gl_FragColor=vec4(vec3(ao),1.);}',{tD:{value:null},res:{value:new THREE.Vector2()},near:{value:4},far:{value:32000},p11:{value:1},p00:{value:1}});
   POST.mBright=fs('uniform sampler2D tC;varying vec2 vU;void main(){vec3 c=texture2D(tC,vU).rgb;float l=dot(c,vec3(.2126,.7152,.0722));gl_FragColor=vec4(c*smoothstep(0.72,1.0,l)*1.2,1.);}',{tC:{value:null}});
   POST.mBlur=fs('uniform sampler2D tC;uniform vec2 dir;varying vec2 vU;void main(){vec3 c=texture2D(tC,vU).rgb*0.227;c+=(texture2D(tC,vU+dir*1.385).rgb+texture2D(tC,vU-dir*1.385).rgb)*0.316;c+=(texture2D(tC,vU+dir*3.231).rgb+texture2D(tC,vU-dir*3.231).rgb)*0.07;gl_FragColor=vec4(c,1.);}',{tC:{value:null},dir:{value:new THREE.Vector2()}});
-  POST.mComp=fs('uniform sampler2D tC,tA,tB;uniform vec2 res;uniform float aoK,blK,useAO,useFX;varying vec2 vU;'+
+  POST.mShaft=fs('uniform sampler2D tC;uniform vec2 sun;uniform float k;varying vec2 vU;void main(){vec2 d=(vU-sun)/48.0;vec2 uv=vU;float w=1.0;vec3 s=vec3(0.);for(int i=0;i<48;i++){uv-=d;vec3 c=texture2D(tC,clamp(uv,0.001,0.999)).rgb;s+=c*w;w*=0.955;}gl_FragColor=vec4(s/18.0*k,1.);}',{tC:{value:null},sun:{value:new THREE.Vector2()},k:{value:0}}); /* fénysugarak a nap felől (Cinematic) */
+  POST.mComp=fs('uniform sampler2D tC,tA,tB,tS;uniform vec2 res;uniform float aoK,blK,useAO,useFX,shK,grade;varying vec2 vU;'+
     'float L(vec3 c){return dot(c,vec3(.299,.587,.114));}'+
     'void main(){vec2 px=1.0/res;vec3 cM=texture2D(tC,vU).rgb;float lM=L(cM),lN=L(texture2D(tC,vU+vec2(0.,-px.y)).rgb),lS=L(texture2D(tC,vU+vec2(0.,px.y)).rgb),lW=L(texture2D(tC,vU+vec2(-px.x,0.)).rgb),lE=L(texture2D(tC,vU+vec2(px.x,0.)).rgb);'+
     'float mn=min(lM,min(min(lN,lS),min(lW,lE))),mx=max(lM,max(max(lN,lS),max(lW,lE))),ct=mx-mn;vec3 c=cM;'+
     'if(useFX>0.5&&ct>max(0.04,mx*0.12)){vec2 dr=vec2(-(lN-lS),(lW-lE));float dm=max(abs(dr.x),abs(dr.y))+1e-4;dr=clamp(dr/dm,-2.0,2.0)*px;c=0.5*(texture2D(tC,vU+dr*0.5).rgb+texture2D(tC,vU-dr*0.5).rgb)*0.5+cM*0.5;}'+ /* élsimítás */
     'if(useAO>0.5){float a=0.;for(int i=-2;i<=2;i++)for(int j=-2;j<=2;j++)a+=texture2D(tA,vU+vec2(float(i),float(j))*px*2.0).r;a/=25.0;c*=mix(1.0,a,aoK);}'+
-    'c+=texture2D(tB,vU).rgb*blK;'+
+    'c+=texture2D(tB,vU).rgb*blK;c+=texture2D(tS,vU).rgb*shK*vec3(1.0,0.86,0.62);'+
+    'if(grade>0.5){float g0=L(c);c=mix(c,c*vec3(0.9,0.97,1.1),(1.0-smoothstep(0.0,0.45,g0))*0.5);c=mix(c,c*vec3(1.08,1.0,0.88),smoothstep(0.5,1.0,g0)*0.4);c=mix(c,c*c*(3.0-2.0*c),0.12);c+=(fract(sin(dot(gl_FragCoord.xy,vec2(12.9898,78.233)))*43758.5453)-0.5)*0.012;}'+ /* Cinematic: hideg árnyékok, meleg fények, finom filmszemcse */
     'c=mix(c,c*c*(3.0-2.0*c),0.18);float g=L(c);c=mix(vec3(g),c,1.08);'+ /* enyhe kontraszt, telítettség */
     'vec2 q=vU-0.5;c*=1.0-0.28*pow(length(q)*1.3,2.6);gl_FragColor=vec4(clamp(c,0.,1.),1.);}',
-    {tC:{value:null},tA:{value:null},tB:{value:null},res:{value:new THREE.Vector2()},aoK:{value:0.7},blK:{value:0.55},useAO:{value:0},useFX:{value:1}});}
+    {tC:{value:null},tA:{value:null},tB:{value:null},tS:{value:null},res:{value:new THREE.Vector2()},aoK:{value:0.7},blK:{value:0.55},useAO:{value:0},useFX:{value:1},shK:{value:0},grade:{value:0}});}
 function postResize(){const r=G3.renderer,v=r.getDrawingBufferSize(new THREE.Vector2()),w=v.x,h=v.y;if(w===POST.w&&h===POST.h)return;POST.w=w;POST.h=h;
   for(const k of ['rt','rtA','rtB1','rtB2'])if(POST[k]){POST[k].dispose();if(POST[k].depthTexture)POST[k].depthTexture.dispose();}
-  const P8={minFilter:THREE.LinearFilter,magFilter:THREE.LinearFilter,format:THREE.RGBAFormat};if(THREE.WebGLMultisampleRenderTarget){POST.rt=new THREE.WebGLMultisampleRenderTarget(w,h,P8);POST.rt.samples=QL==='ultra'&&!LITE?Math.min(GPU.igpu?4:8,G3.renderer.capabilities.maxSamples||4):(GPU.igpu?2:4); /* beépített grafikán kétszeres élsimítás: a négyszeres a képpontkitöltést duplázza */POST.msaa=true; /* laptopon ultra minőségben nyolcszoros élsimítás */}else{POST.rt=new THREE.WebGLRenderTarget(w,h,P8);POST.msaa=false;}POST.rt.texture.encoding=THREE.sRGBEncoding; /* négyszeres élsimítás a képpufferben: sima élek */
-  POST.rtA=new THREE.WebGLRenderTarget(Math.max(1,w>>1),Math.max(1,h>>1),P8);POST.rtB1=new THREE.WebGLRenderTarget(Math.max(1,w>>2),Math.max(1,h>>2),P8);POST.rtB2=new THREE.WebGLRenderTarget(Math.max(1,w>>2),Math.max(1,h>>2),P8);}
+  const P8={minFilter:THREE.LinearFilter,magFilter:THREE.LinearFilter,format:THREE.RGBAFormat};if(THREE.WebGLMultisampleRenderTarget){POST.rt=new THREE.WebGLMultisampleRenderTarget(w,h,P8);POST.rt.samples=EPIC?Math.min(8,G3.renderer.capabilities.maxSamples||4):QL==='ultra'&&!LITE?Math.min(GPU.igpu?4:8,G3.renderer.capabilities.maxSamples||4):(GPU.igpu?2:4); /* beépített grafikán kétszeres élsimítás: a négyszeres a képpontkitöltést duplázza */POST.msaa=true; /* laptopon ultra minőségben nyolcszoros élsimítás */}else{POST.rt=new THREE.WebGLRenderTarget(w,h,P8);POST.msaa=false;}POST.rt.texture.encoding=THREE.sRGBEncoding; /* négyszeres élsimítás a képpufferben: sima élek */
+  POST.rtA=new THREE.WebGLRenderTarget(Math.max(1,w>>1),Math.max(1,h>>1),P8);POST.rtB1=new THREE.WebGLRenderTarget(Math.max(1,w>>2),Math.max(1,h>>2),P8);POST.rtB2=new THREE.WebGLRenderTarget(Math.max(1,w>>2),Math.max(1,h>>2),P8);if(POST.rtS)POST.rtS.dispose();POST.rtS=EPIC?new THREE.WebGLRenderTarget(Math.max(1,w>>2),Math.max(1,h>>2),P8):null;}
 function postPass(mat,target){const r=G3.renderer;POST.quad.material=mat;r.setRenderTarget(target||null);r.render(POST.sc,POST.cam);}
 function postRender(){const r=G3.renderer,cam=G3.camera;postResize();r.setRenderTarget(POST.rt);r.render(G3.scene,cam);
   if(POST.ao){const m=POST.mAO.uniforms;m.tD.value=POST.rt.depthTexture;m.res.value.set(POST.rtA.width,POST.rtA.height);m.near.value=cam.near;m.far.value=cam.far;m.p11.value=cam.projectionMatrix.elements[5];m.p00.value=cam.projectionMatrix.elements[0];postPass(POST.mAO,POST.rtA);}
   if(POST.bloom){POST.mBright.uniforms.tC.value=POST.rt.texture;postPass(POST.mBright,POST.rtB1);const b=POST.mBlur.uniforms,iw=1/POST.rtB1.width,ih=1/POST.rtB1.height;
-    for(let k=0;k<2;k++){b.tC.value=POST.rtB1.texture;b.dir.value.set(iw*(1+k),0);postPass(POST.mBlur,POST.rtB2);b.tC.value=POST.rtB2.texture;b.dir.value.set(0,ih*(1+k));postPass(POST.mBlur,POST.rtB1);}}
-  const c=POST.mComp.uniforms;c.tC.value=POST.rt.texture;c.tA.value=POST.rtA.texture;c.tB.value=POST.rtB1.texture;c.res.value.set(POST.w,POST.h);c.useAO.value=POST.ao?1:0;c.useFX.value=POST.msaa?0:1;c.blK.value=POST.bloom?(0.45+0.4*(G3.nightK||0)):0;postPass(POST.mComp,null);}
+    for(let k=0;k<(EPIC?3:2);k++){b.tC.value=POST.rtB1.texture;b.dir.value.set(iw*(1+k),0);postPass(POST.mBlur,POST.rtB2);b.tC.value=POST.rtB2.texture;b.dir.value.set(0,ih*(1+k));postPass(POST.mBlur,POST.rtB1);}}
+  let shK=0;if(EPIC&&!POST.noEpic&&POST.bloom&&G3.sunDir&&POST.rtS){const sp=G3._sp||(G3._sp=new THREE.Vector3());sp.copy(cam.position).addScaledVector(G3.sunDir,20000).project(cam);const sx=sp.x*0.5+0.5,sy=sp.y*0.5+0.5,on=sp.z<1&&G3.sunDir.y>0.02,edge=Math.max(0,1-Math.max(Math.abs(sx-0.5),Math.abs(sy-0.5))*1.2);
+    shK=on?Math.min(1,edge*1.4)*(0.35+0.65*(1-Math.min(1,G3.sunDir.y*1.6)))*(1-(G3.nightK||0)):0; /* alacsony napnál (hajnal, alkony) erősebb */
+    if(shK>0.01){const m=POST.mShaft.uniforms;m.tC.value=POST.rtB1.texture;m.sun.value.set(sx,sy);m.k.value=1;postPass(POST.mShaft,POST.rtS);}else shK=0;}
+  const c=POST.mComp.uniforms;c.tC.value=POST.rt.texture;c.tA.value=POST.rtA.texture;c.tB.value=POST.rtB1.texture;c.res.value.set(POST.w,POST.h);c.useAO.value=POST.ao?1:0;c.useFX.value=POST.msaa?0:1;c.tS.value=POST.rtS?POST.rtS.texture:POST.rtB1.texture;c.shK.value=shK*0.55;c.grade.value=EPIC&&!POST.noEpic?1:0;c.blK.value=POST.bloom?(0.45+0.4*(G3.nightK||0)):0;postPass(POST.mComp,null);}
 // önbeálló sebesség: ha lassul a kép, csökken a felbontás, majd kikapcsol a kontaktárnyék és a ragyogás; ha van tartalék, visszaáll
 // ===== teljesítményteszt: rögzített pálya (mag, méret, csapatszám), rögzített kameraút hat szakaszban, 60 mp mérés; az akadásokat okukkal együtt jegyzi =====
-const APPV='v95';
+const APPV='v96';
 const BENCH={on:false,tags:[],frames:[],stalls:[],seg:0};
 function benchTag(n,ms){if(BENCH.on)BENCH.tags.push(n+(ms!=null?' '+Math.round(ms)+' ms':''));}
 const BENCH_SEGS=['overview','own castle','village','forest','quarry & workshop','battle, leader'];
@@ -4163,7 +4169,7 @@ function benchEnd(){const B=BENCH;B.on=false;$('benchBar').hidden=true;running=f
   const cv=G3.renderer.domElement,L=[];
   L.push('Medieval Simulator '+APPV+' · performance test · '+new Date().toLocaleString('en-GB'));
   L.push('GPU: '+(GPU.s||'unknown')+(GPU.mob?' (phone/tablet)':GPU.igpu?' (looks integrated)':''));
-  L.push('Quality: '+(QEN[QL]||QL)+' · canvas: '+cv.width+'×'+cv.height+' px (ratio '+G3.renderer.getPixelRatio().toFixed(2)+') · post: '+(POST.on?(POST.bloom?'bloom, ':'')+(POST.msaa?'AA':'yes'):'none')+' · threads: '+(navigator.hardwareConcurrency||'?'));
+  L.push('Quality: '+qName()+' · canvas: '+cv.width+'×'+cv.height+' px (ratio '+G3.renderer.getPixelRatio().toFixed(2)+') · post: '+(POST.on?(POST.bloom?'bloom, ':'')+(POST.msaa?'AA':'yes'):'none')+' · threads: '+(navigator.hardwareConcurrency||'?'));
   L.push('Shader warm-up: '+(G3.warmMs||0)+' ms · shaders: '+G3.renderer.info.programs.length);
   L.push('');
   L.push('Average: '+(F.length/(sum/1000)).toFixed(1)+' fps · median '+pc(0.5).toFixed(1)+' ms · 95%: '+pc(0.95).toFixed(1)+' ms · 99%: '+pc(0.99).toFixed(1)+' ms · longest: '+(dts[dts.length-1]||0).toFixed(0)+' ms');
@@ -4192,7 +4198,7 @@ function aqFrame(dtMs){if(!G3.ok||!G3.renderer||view!=='3d'||AQ.lock)return;AQ.a
   if(!AQ.el){const d=document.createElement('div');d.style.cssText='position:absolute;left:8px;bottom:8px;font:600 11px/1.2 system-ui,sans-serif;color:#fff;background:rgba(0,0,0,.38);padding:3px 6px;border-radius:6px;pointer-events:none;z-index:5';arena.appendChild(d);AQ.el=d;}
   const pn=Math.max(1,PERF.n),pms=PERF.ms/pn,pc=PERF.c/pn,pt=PERF.t/pn;PERF.ms=PERF.c=PERF.t=PERF.n=0;PERF.last={fps:AQ.fps,cpu:pms,calls:pc,tris:pt,res:AQ.s};
   if(!AQ.el._ck){AQ.el._ck=1;AQ.el.style.pointerEvents='auto';AQ.el.style.cursor='pointer';AQ.el.title='Click for detailed metrics';AQ.el.onclick=()=>{PERF.show=!PERF.show;try{localStorage.setItem('meroSav',PERF.show?'1':'0')}catch(e){}};}
-  AQ.el.textContent=Math.round(AQ.fps)+' fps · '+Math.round(AQ.s*100)+'%'+(POST.on?(POST.bloom?' · bloom':'')+(POST.msaa?' · AA':''):'')+(PERF.show?' · '+(QEN[QL]||QL)+' · cpu '+pms.toFixed(1)+' ms · '+Math.round(pc)+' calls · '+(pt/1e6).toFixed(2)+' M tris · '+(1000/Math.max(0.1,AQ.fps)).toFixed(1)+' ms/frame':'');}
+  AQ.el.textContent=Math.round(AQ.fps)+' fps · '+Math.round(AQ.s*100)+'%'+(POST.on?(POST.bloom?' · bloom':'')+(POST.msaa?' · AA':''):'')+(PERF.show?' · '+qName()+' · cpu '+pms.toFixed(1)+' ms · '+Math.round(pc)+' calls · '+(pt/1e6).toFixed(2)+' M tris · '+(1000/Math.max(0.1,AQ.fps)).toFixed(1)+' ms/frame':'');}
 // ===== éjszakai apró fények: szentjánosbogarak a rét és az erdőszél fölött, vadak szeme az erdő sötétjében (a kamera felé fordulva felcsillan) =====
 function nightGlowInit(root){G3.nglow=null;if(!G3.film)return;const NF=FILMHI()?260:150,NE=FILMHI()?70:40,N=NF+NE;
   const mat=new THREE.ShaderMaterial({transparent:true,depthWrite:false,blending:THREE.AdditiveBlending,uniforms:{uT:{value:0},uN:{value:0}},
@@ -4248,9 +4254,9 @@ function filmGrassMat(sway){const cheap=QL==='alacsony'||QL==='közepes',m=cheap
     float band=sin(dot(ip.xz,vec2(0.0042,0.0021))-uT*0.9)*0.5+0.5;band=band*band*band;float gust=0.45+0.4*sin(uT*0.35+ip.x*0.006)+1.1*band;float w=(sin(uT*1.2+ip.x*0.03+ip.z*0.04)*0.6+sin(uT*2.3+ip.x*0.13+ip.z*0.09)*0.2)*gust+0.9*band;vBand=band; /* széllökés-hullámok vonulnak végig a mezőn */
     transformed.x+=w*position.y*position.y*${sway.toFixed(3)};transformed.z+=w*position.y*position.y*${(sway*0.45).toFixed(3)};`);};return m;}
 function filmGrassInit(root){if(!G3.film)return;G3.wind={value:0};const hi=FILMHI();
-  const sets=[{geo:filmBlade(5,0.6,1.1,0.55,0.18,'#1E2914','#667634'),mat:filmGrassMat(0.32),N:Math.round((QL==='ultra'?68000:hi?42000:18000)*(GPU.mob?0.5:1)),per:hi?60:34,w:[2.2,3.6],h:[3.6,8.5]},
-    {geo:filmBlade(6,0.7,1.1,1.0,0.14,'#28321A','#948F55'),mat:filmGrassMat(0.55),N:Math.round((QL==='ultra'?9500:hi?6000:2600)*(GPU.mob?0.5:1)),per:6,w:[1.8,2.8],h:[8,15],tall:1}];
-  G3.grass={sets,half:(QL==='ultra'?560:hi?430:330)*(GPU.mob?0.75:1),cell:40,key:''};
+  const sets=[{geo:filmBlade(5,0.6,1.1,0.55,0.18,'#1E2914','#667634'),mat:filmGrassMat(0.32),N:Math.round((QL==='ultra'?68000:hi?42000:18000)*(GPU.mob?0.5:EPIC?2:1)),per:hi?60:34,w:[2.2,3.6],h:[3.6,8.5]},
+    {geo:filmBlade(6,0.7,1.1,1.0,0.14,'#28321A','#948F55'),mat:filmGrassMat(0.55),N:Math.round((QL==='ultra'?9500:hi?6000:2600)*(GPU.mob?0.5:EPIC?2:1)),per:6,w:[1.8,2.8],h:[8,15],tall:1}];
+  G3.grass={sets,half:(QL==='ultra'?560:hi?430:330)*(GPU.mob?0.75:EPIC?1.4:1),cell:40,key:''};
   for(const s of sets){s.im=new THREE.InstancedMesh(s.geo,s.mat,s.N);s.im.setColorAt(0,new THREE.Color());s.im.count=0;s.im.frustumCulled=false;s.im.receiveShadow=true;s.im._fs=1; /* a színpuffer a teljes kapacitásra szól, ezért a nullázás előtt jön létre */root.add(s.im);}}
 // fű a kamera körül: cellánként egyszer kiszámolt, eltárolt szálak; mozgáskor csak az új szélső cellák készülnek el (képkockánként néhány ms keretben), a többit csak összemásoljuk
 function grassCellCalc(s,i,j,W2,H2){const G=G3.grass,C=G.cell,TC=P.TCELL,T=G._t||(G._t={m4:new THREE.Matrix4(),q:new THREE.Quaternion(),e:new THREE.Euler(),v:new THREE.Vector3(),sc:new THREE.Vector3(),col:new THREE.Color(),M:new Float32Array(64*16),Cc:new Float32Array(64*3)});
@@ -4291,7 +4297,7 @@ function cloudInject(sh){const U=filmCU();sh.uniforms.uCl=U.uCl;sh.uniforms.uSun
   sh.fragmentShader=sh.fragmentShader.replace('#include <common>','#include <common>\n'+CLOUD_FS).replace('#include <aomap_fragment>','{float cS=cloudSh();reflectedLight.directDiffuse*=cS;reflectedLight.directSpecular*=cS;}\n#include <aomap_fragment>');}
 function cloudOBC(sh){cloudInject(sh);}
 // talaj: textúrakeverék + kitaposott utak (besüpped, kopik) + nedvesség, pocsolyák
-function filmGroundMat(){const T0=filmTextures((QL==='magas'||QL==='ultra')?512:256),T={grass:T0.grass,dirt:aTex('forest_ground_06_d')||T0.dirt,rock:aTex('rocky_terrain_02_d')||T0.rock}, /* fotóalapú erdei talaj és szikla */m=(QL==='alacsony'||QL==='közepes')?new THREE.MeshLambertMaterial({vertexColors:true}):new THREE.MeshStandardMaterial({vertexColors:true,roughness:0.97,metalness:0}),U=filmCU(),vtf=G3.renderer.capabilities.maxVertexTextures>0;m._fs=1;
+function filmGroundMat(){const T0=filmTextures(EPIC?1024:(QL==='magas'||QL==='ultra')?512:256),T={grass:T0.grass,dirt:aTex('forest_ground_06_d')||T0.dirt,rock:aTex('rocky_terrain_02_d')||T0.rock}, /* fotóalapú erdei talaj és szikla */m=(QL==='alacsony'||QL==='közepes')?new THREE.MeshLambertMaterial({vertexColors:true}):new THREE.MeshStandardMaterial({vertexColors:true,roughness:0.97,metalness:0}),U=filmCU(),vtf=G3.renderer.capabilities.maxVertexTextures>0;m._fs=1;
   m.onBeforeCompile=sh=>{cloudInject(sh);sh.uniforms.tG={value:T.grass};sh.uniforms.tD={value:T.dirt};sh.uniforms.tR={value:T.rock};for(const k of ['uWet','tW','uWB','uWO','uSkyC'])sh.uniforms[k]=U[k];
     sh.vertexShader=sh.vertexShader.replace('#include <common>','#include <common>\nattribute vec3 splat;varying vec3 vS;varying vec2 vW;varying vec2 vWU;uniform sampler2D tW;uniform vec4 uWB;uniform vec2 uWO;')
       .replace('#include <begin_vertex>','#include <begin_vertex>\nvS=splat;vec4 wq=modelMatrix*vec4(transformed,1.0);vW=wq.xz;vWU=vec2((wq.x+uWO.x)*uWB.x+uWB.y,(wq.z+uWO.y)*uWB.z+uWB.w);'+(vtf?'transformed.y-=texture2D(tW,vWU).r*2.8;':''));
@@ -4490,8 +4496,8 @@ function reflSetup(){REFL.on=!!(G3.film&&!LITE&&(QL==='magas'||QL==='ultra')&&PO
 function reflRender(){REFL.k.value=0;if(!REFL.on||!G3.lakeG||!G3.controls)return;const cam=G3.camera,t=G3.controls.target,W2=world.W/2,H2=world.H/2,cd=cam.position.distanceTo(t);
   let best=null,bd=1e9;for(const L of G3.lakeG){const l=L.l,d=Math.hypot(l.x-W2-t.x,l.y-H2-t.z)-l.R*1.2;if(d<bd){bd=d;best=L;}}
   if(!best||bd>cd*1.6+600||cam.position.y<best.lv+2)return;
-  if((REFL.n++&1)&&REFL.rt&&REFL.lv===best.lv){REFL.k.value=1;return;} /* a tükörkép minden második képkockán frissül */ /* ha akad a kép, csak minden második képkockán frissül */
-  const r=G3.renderer,w=Math.max(2,POST.w>>1),h=Math.max(2,POST.h>>1);
+  if(!EPIC&&(REFL.n++&1)&&REFL.rt&&REFL.lv===best.lv){REFL.k.value=1;return;} /* a tükörkép minden második képkockán frissül */ /* ha akad a kép, csak minden második képkockán frissül */
+  const r=G3.renderer,w=Math.max(2,EPIC?POST.w:POST.w>>1),h=Math.max(2,EPIC?POST.h:POST.h>>1);
   if(!REFL.rt||REFL.rt.width!==w||REFL.rt.height!==h){if(REFL.rt)REFL.rt.dispose();REFL.rt=new THREE.WebGLRenderTarget(w,h,{minFilter:THREE.LinearFilter,magFilter:THREE.LinearFilter,format:THREE.RGBAFormat});REFL.rt.texture.encoding=THREE.sRGBEncoding;REFL.tex.value=REFL.rt.texture;}
   const lv=best.lv,vc=REFL.cam,cp=cam.position,fw=new THREE.Vector3(0,0,-1).applyQuaternion(cam.quaternion),up=new THREE.Vector3(0,1,0).applyQuaternion(cam.quaternion);
   vc.position.set(cp.x,2*lv-cp.y,cp.z);vc.up.set(up.x,-up.y,up.z);vc.lookAt(cp.x+fw.x,2*lv-(cp.y+fw.y),cp.z+fw.z);vc.near=cam.near;vc.far=cam.far;vc.updateMatrixWorld();vc.projectionMatrix.copy(cam.projectionMatrix);vc.projectionMatrixInverse.copy(cam.projectionMatrixInverse);
@@ -4864,7 +4870,7 @@ function init3D(){
     G3.hemi=new THREE.HemisphereLight('#BCCAD6','#4E4232',0.62);G3.scene.add(G3.hemi);
     const sun=new THREE.DirectionalLight('#FFE2BE',1.6);sun.position.set(-620,420,500);G3.scene.add(sun,sun.target);G3.sun=sun;
     if(G3.shadow){r.shadowMap.enabled=true;shadowCullSetup(r);r.shadowMap.type=THREE.PCFSoftShadowMap;sun.castShadow=true;sun.shadow.mapSize.set(QL==='ultra'&&!LITE?4096:2048,QL==='ultra'&&!LITE?4096:2048);const sc=sun.shadow.camera;sc.near=100;sc.far=4000;sun.shadow.bias=-0.0006;sun.shadow.normalBias=1.2;
-      G3.sunFar=null;G3.farSlow=false;if(!LITE&&FILMHI()){csmPatch();const far=new THREE.DirectionalLight('#000000',0);far.castShadow=true;far.shadow.mapSize.set(GPU.igpu?1024:2048,GPU.igpu?1024:2048);G3.farSlow=!!GPU.igpu; /* beépített grafikán a távoli árnyéklépcső kisebb és ritkábban frissül */far.shadow.camera.near=100;far.shadow.camera.far=6000;far.shadow.bias=-0.0008;far.shadow.normalBias=2.2;far.shadow.radius=2;G3.scene.add(far,far.target);G3.sunFar=far;sun.shadow.normalBias=0.8;} /* laptopon kétlépcsős árnyék */}
+      G3.sunFar=null;G3.farSlow=false;if(!LITE&&FILMHI()){csmPatch();const far=new THREE.DirectionalLight('#000000',0);far.castShadow=true;far.shadow.mapSize.set(EPIC?4096:GPU.igpu?1024:2048,EPIC?4096:GPU.igpu?1024:2048);G3.farSlow=!!GPU.igpu; /* beépített grafikán a távoli árnyéklépcső kisebb és ritkábban frissül */far.shadow.camera.near=100;far.shadow.camera.far=6000;far.shadow.bias=-0.0008;far.shadow.normalBias=2.2;far.shadow.radius=2;G3.scene.add(far,far.target);G3.sunFar=far;sun.shadow.normalBias=0.8;} /* laptopon kétlépcsős árnyék */}
     G3.sky=filmSky();G3.scene.add(G3.sky);}
   else{G3.scene.background=new THREE.Color('#D6E3E8');G3.scene.fog=new THREE.Fog('#D6E3E8',4800,10500);
     G3.hemi=new THREE.HemisphereLight('#FFFFFF','#5B5B45',0.75);G3.scene.add(G3.hemi);
@@ -5783,7 +5789,7 @@ function terrainLOD(){const L=G3.tTiles;if(!L||!G3.camera)return;const cp=G3.cam
   for(const m of L){const d=Math.max(0,m.userData.c.distanceTo(cp)-m.userData.r),lod=d<1400*k?0:d<3200*k?1:d<6500*k?2:3;if(lod!==m._lod){m._lod=lod;m.geometry=m.userData.lods[lod];}}}
 // fák láthatósága: képernyőn kívül semmi, közel a részletes lomb, távol az egyszerűsített
 function treeLOD(){nearOnlyLOD();terrainLOD();realLOD();if(!G3.treeChunks||!G3.camera)return;const cam=G3.camera,F=G3._fr||(G3._fr=new THREE.Frustum()),M=G3._frm||(G3._frm=new THREE.Matrix4()),S=G3._frs||(G3._frs=new THREE.Sphere());
-  M.multiplyMatrices(cam.projectionMatrix,cam.matrixWorldInverse);F.setFromProjectionMatrix(M);const near=(QL==='ultra'?2400:QL==='magas'?1700:QL==='közepes'?1200:800)*(GPU.mob?0.6:GPU.igpu?0.75:1),far=QL==='alacsony'?7000:11000,cp=cam.position;const RO=G3.realCellOn;
+  M.multiplyMatrices(cam.projectionMatrix,cam.matrixWorldInverse);F.setFromProjectionMatrix(M);const near=(QL==='ultra'?2400:QL==='magas'?1700:QL==='közepes'?1200:800)*(GPU.mob?0.6:EPIC?1.5:GPU.igpu?0.75:1),far=QL==='alacsony'?7000:11000,cp=cam.position;const RO=G3.realCellOn;
   for(const c of G3.treeChunks){S.center.set(c.x,c.y+60,c.z);S.radius=c.r;const vis=F.intersectsSphere(S),d=Math.max(0,S.center.distanceTo(cp)-c.r*0.6),hi=vis&&d<near;
     for(const m of c.lo)m.visible=vis&&d<far&&!hi;for(const m of c.both)m.visible=vis&&d<far;
     for(const m of c.hi){let v=hi;if(v){const u=m.userData;if(RO&&RO.has(u.rc))v=false;else if(u.sc){S.center.copy(u.sc);S.radius=520;v=F.intersectsSphere(S);}}m.visible=v;}}}
@@ -6475,7 +6481,7 @@ function draw3D(){
   if(G3.film){if(G3.sky)G3.sky.position.copy(G3.camera.position);
     if(G3.sun&&G3.controls){const t=G3.controls.target,cp=G3.camera.position,d=cp.distanceTo(t);{const sd0=G3.sunDir||new THREE.Vector3(-0.62,0.42,0.5).normalize();if(!G3.shDir||G3.shDir.angleTo(sd0)>0.012)G3.shDir=sd0.clone();} /* a fény iránya lépcsőzve frissül: nem úszik, nem vibrál az árnyék */
       if(G3.sunFar){const c=G3._shC||(G3._shC=new THREE.Vector3());c.set(cp.x,t.y,cp.z).lerp(t,0.62); /* két árnyéklépcső: a kamera előtti közeli rész éles, a táj távolabb szélesebb, puhább */
-        shadowPlace(G3.sun,c,Math.min(1100,Math.max(170,d*0.5)));shadowPlace(G3.sunFar,t,Math.min(3600,Math.max(650,d*1.45)));}
+        shadowPlace(G3.sun,c,Math.min(1100,Math.max(170,d*0.5))*(EPIC?0.72:1)); /* Cinematic: szűkebb, ezért élesebb közeli árnyék */shadowPlace(G3.sunFar,t,Math.min(3600,Math.max(650,d*1.45)));}
       else shadowPlace(G3.sun,t,Math.min(2400,Math.max(380,d*0.9)));}
     if(G3.wind)G3.wind.value=now;filmAtmoUpdate(now,dtR);meadowUpdate(now,world.W/2,world.H/2);filmGrassUpdate(world.W/2,world.H/2);
     if(now-(G3.sweepT||0)>1.5){G3.sweepT=now;const fT0=performance.now();filmSweep();if(BENCH.on){const fm=performance.now()-fT0;if(fm>3)benchTag('material sweep',fm);}}}
@@ -7172,7 +7178,7 @@ document.addEventListener('visibilitychange',()=>{lastT=0;});
 $('bSound').onclick=()=>{if(!auInit()){$('bSound').textContent='No sound';return;}AU.ctx.resume();AU.on=!AU.on;if(AU.on&&world)AU.seq=world.seq||0;if(!AU.on)auSet(AU.master.gain,0,0.1);
   $('bSound').textContent=AU.on?'🔊 Sound':'🔇 Sound';$('bSound').setAttribute('aria-pressed',AU.on);};
 $('vol').oninput=()=>{AU.vol=$('vol').value/100;};
-$('selQ').value=QL;$('selQ').onchange=()=>{QL=$('selQ').value;try{localStorage.setItem('minoseg',QL);localStorage.setItem('minoseg_v','2');}catch(e){}
+$('selQ').value=EPIC?'mozi':QL;$('selQ').onchange=()=>{const v=$('selQ').value;EPIC=v==='mozi';QL=EPIC?'ultra':v;try{localStorage.setItem('minoseg',QL);localStorage.setItem('minoseg_v','2');localStorage.setItem('mozi',EPIC?'1':'0');}catch(e){}
   if(G3.renderer){try{G3.renderer.dispose();G3.renderer.forceContextLoss&&G3.renderer.forceContextLoss();}catch(e){}const old=$('cv3'),nc=old.cloneNode(false);old.parentNode.replaceChild(nc,old);
     for(const k of Object.keys(G3))delete G3[k];G3.ok=false;G3.root=null;G3.renderer=null;HR.p=null;HR.anim&&HR.anim.clear&&HR.anim.clear();} /* minden gyorstárat eldobunk: a színtér és az anyagok minőségenként mások */
   staticImg=null;if(view==='3d'){let ok=false;try{ok=build3D();}catch(e){G3.failed=e.message||String(e);}if(!ok)view='2d';applyView();}};
